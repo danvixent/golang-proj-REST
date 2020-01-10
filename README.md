@@ -1,2 +1,2 @@
 # golang-proj-REST
-oLang Project to support REST endpoints GCI task
+GoLang Project to support REST endpoints GCI task
