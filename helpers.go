@@ -17,6 +17,7 @@ func process(price *string, time *string) error {
 	ref = strings.Replace(ref, "-", ".", 1)
 
 	ref = *time
+
 	_, err = strconv.Atoi(ref)
 	if err != nil {
 		return err
