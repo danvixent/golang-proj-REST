@@ -1,125 +1,192 @@
 package main
 
+// P.S: Procedures used more than once are encapsulated in helper functions in file helpers.go
+
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
+	_ "github.com/go-sql-driver/mysql"
 	"gorilla/mux"
-	"github.com/go-sql-driver/mysql"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 )
+
+var db *sql.DB
+
+func init() {
+	var err error
+	db, err = sql.Open("mysql", "ffqnJuiViE:rqdDqpjfED@tcp(remotemysql.com:3306)/ffqnJuiViE")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(3)
+	} else {
+		fmt.Println("Connected")
+	}
+}
 
 // Detail represents the food's info
 type Detail struct {
 	ID       int
 	Name     string
-	Price    string
-	MakeTime string
-}
-
-var food = []Detail{
-
-	Detail{
-		ID:       1,
-		Name:     "Pizza",
-		Price:    "$4.99",
-		MakeTime: "10mins",
-	},
-	Detail{
-		ID:       2,
-		Name:     "Cheese Burger",
-		Price:    "$4.53",
-		MakeTime: "5mins",
-	},
-	Detail{
-		ID:       3,
-		Name:     "Sandwich",
-		Price:    "$3.99",
-		MakeTime: "3mins",
-	},
-	Detail{
-		ID:       4,
-		Name:     "Burger",
-		Price:    "$5.99",
-		MakeTime: "4mins",
-	},
-	Detail{
-		ID:       5,
-		Name:     "Ice Cream",
-		Price:    "$2.50",
-		MakeTime: "nil",
-	},
+	Price    float64
+	MakeTime float64
 }
 
 // GetByID returns the details of food by and Id
 func GetByID(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	var tmp Detail
 
-	str, err := strconv.Atoi(id)
+	// Check if id is numeric
+	_, err := strconv.Atoi(id)
 	if err != nil {
 		w.Write([]byte("ID value in URL Request is Invalid"))
+		return
 	}
 
-	for ix := range food {
-		ref := &food[ix]
-		if str == ref.ID {
-			tmp = *ref
-			break
-		}
-	}
-	json, err := json.MarshalIndent(tmp, "", "	")
-	if err != nil {
+	tmp := &Detail{}
+	err = query("ID", tmp, id)
+	if err == sql.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	} else if err != nil {
 		log.Fatal(err)
+		http.Error(w, http.StatusText(500), 500)
+		return
 	}
-	w.Write(json)
+	render(tmp, &w)
 }
 
 // GetByName returns the details of the food by searching name
+// And assumes that no two foods will have the same exact Name
 func GetByName(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
-	var tmp Detail
 
-	for ix := range food {
-		ref := &food[ix]
-		if name == ref.Name {
-			tmp = *ref
-			break
-		}
-	}
-
-	json, err := json.MarshalIndent(tmp, "", "	")
+	tmp := &Detail{}
+	err := query("Name", tmp, name)
 	if err != nil {
+		http.Error(w, http.StatusText(500), 500)
 		log.Fatal(err)
+		return
 	}
-	w.Write(json)
+	render(tmp, &w)
 }
 
-// AddNew add new food to the array
+// AddNew add new food to the Database
 // This method assumes a form or cURL will be used to send the data
 func AddNew(w http.ResponseWriter, r *http.Request) {
-	id := newID()
 	name := r.FormValue("name")
 	price := r.FormValue("price")
 	time := r.FormValue("time")
 
+	if name == "" || price == "" || time == "" {
+		w.Write([]byte("Data Provided Is Not Complete"))
+		return
+	}
+
+	// Check if pprice and time is numeric
 	err := process(&price, &time)
 	if err != nil {
 		log.Fatal(err)
-		w.Write([]byte("Invalid Data Supplied: " + err.Error()))
+		w.Write([]byte("Invalid Data Supplied"))
+		return
 	}
 
-	var tmp *Detail
-	tmp.ID = id
-	tmp.Name = name
-	tmp.Price = price
-	tmp.MakeTime = time
+	_, err = db.Exec("INSERT INTO Food(Name,Price,MakeTime) VALUES(?,?,?)", name, price, time)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	w.Write([]byte("Food Added Successfully"))
+}
 
-	food = append(food, *tmp) //add the supplied data to the slice
+// Remove deletes the row with the given ID
+func Remove(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
 
-	json, err := json.MarshalIndent(food, "", "	")
+	// Check if id is numeric
+	_, err := strconv.Atoi(id)
+	if err != nil {
+		log.Fatal(err)
+		w.Write([]byte("Invalid Data Supplied"))
+	}
+
+	_, err = db.Exec("DELETE FROM Food WHERE ID = ?", id)
+	if err != nil {
+		log.Fatal(err)
+		http.Error(w, http.StatusText(500), 500)
+		return
+	}
+	w.Write([]byte("Food Deleted Successfully"))
+}
+
+// ShowAll lists all books
+func ShowAll(w http.ResponseWriter, r *http.Request) {
+
+	rows, err := db.Query("SELECT * From Food")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tmp := make([]*Detail, 0)
+	for rows.Next() {
+		fd := new(Detail)
+		err := rows.Scan(&fd.ID, &fd.Name, &fd.Price, &fd.MakeTime)
+		if err != nil {
+			http.Error(w, http.StatusText(500), 500)
+			log.Fatal(err)
+			return
+		}
+		tmp = append(tmp, fd)
+	}
+
+	json, err := json.MarshalIndent(&tmp, "", "	")
 	if err != nil {
 		log.Fatal(err)
 	}
 	w.Write(json)
+}
+
+// UpdateName modifies the Name field for a given ID
+func UpdateName(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	name := mux.Vars(r)["name"]
+
+	err := update("Name", name, id)
+	if err != nil {
+		log.Fatal(err)
+		http.Error(w, http.StatusText(500), 500)
+		return
+	}
+	w.Write([]byte("Data Updated Succesfully"))
+}
+
+// UpdatePrice modifies the Price field for a given ID
+func UpdatePrice(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	price := mux.Vars(r)["price"]
+
+	err := update("Price", price, id)
+	if err != nil {
+		log.Fatal(err)
+		http.Error(w, http.StatusText(500), 500)
+		return
+	}
+	w.Write([]byte("Data Updated Succesfully"))
+}
+
+// UpdateTime modifies the MakeTime field for a given ID
+func UpdateTime(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	time := mux.Vars(r)["time"]
+
+	err := update("MakeTime", time, id)
+	if err != nil {
+		log.Fatal(err)
+		http.Error(w, http.StatusText(500), 500)
+		return
+	}
+	w.Write([]byte("Data Updated Succesfully"))
 }

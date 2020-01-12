@@ -1,36 +1,49 @@
 package main
 
 import (
-	"sort"
+	"encoding/json"
+	"log"
+	"net/http"
 	"strconv"
-	"strings"
 )
 
+// proccess checks the values in the URL for integer equivalence
+// Pointers used to save memory
 func process(price *string, time *string) error {
-	var err error
-
-	ref := *price
-	_, err = strconv.Atoi(ref)
+	_, err := strconv.ParseFloat(*price, 64)
 	if err != nil {
 		return err
 	}
-	ref = strings.Replace(ref, "-", ".", 1)
-
-	ref = *time
-
-	_, err = strconv.Atoi(ref)
+	_, err = strconv.ParseFloat(*time, 64)
 	if err != nil {
 		return err
-	} else {
-		ref = ref + "mins"
-		return nil
 	}
+	return nil
 }
 
-func newID() int {
-	sort.Slice(food, func(i, j int) bool {
-		return food[i].ID < food[j].ID
-	})
-	lastid := food[len(food)-1].ID
-	return lastid + 1
+func query(crit string, struc *Detail, variable string) error {
+
+	qry := "SELECT * From Food WHERE " + crit + " = ?"
+	row := db.QueryRow(qry, variable)
+
+	return row.Scan(&struc.ID, &struc.Name, &struc.Price, &struc.MakeTime)
+}
+
+func update(crit string, var1 string, var2 string) error {
+	updqry := "UPDATE Food SET " + crit + " = ? WHERE ID = ?"
+	_, err := db.Exec(updqry, var1, var2)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func render(tmp *Detail, w *http.ResponseWriter) {
+	ref := *tmp
+	json, err := json.MarshalIndent(&ref, "", "	")
+	if err != nil {
+		log.Fatal(err)
+	}
+	res := *w
+	res.Write(json)
 }
