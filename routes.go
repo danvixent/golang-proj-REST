@@ -6,16 +6,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
 	"gorilla/mux"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 var db *sql.DB
 
+// Initialize the database connection pool
 func init() {
 	var err error
 	db, err = sql.Open("mysql", "ffqnJuiViE:rqdDqpjfED@tcp(remotemysql.com:3306)/ffqnJuiViE")
@@ -40,7 +41,7 @@ func GetByID(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
 	// Check if id is numeric
-	_, err := strconv.Atoi(id)
+	err := checkdata(&id)
 	if err != nil {
 		w.Write([]byte("ID value in URL Request is Invalid"))
 		return
@@ -63,34 +64,41 @@ func GetByID(w http.ResponseWriter, r *http.Request) {
 // And assumes that no two foods will have the same exact Name
 func GetByName(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
+	if name == "" {
+		w.Write([]byte("Data needed is empty in URL"))
+		return
+	}
 
 	tmp := &Detail{}
 	err := query("Name", tmp, name)
-	if err != nil {
-		http.Error(w, http.StatusText(500), 500)
+	if err == sql.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	} else if err != nil {
 		log.Fatal(err)
+		http.Error(w, http.StatusText(500), 500)
 		return
 	}
 	render(tmp, &w)
 }
 
 // AddNew add new food to the Database
-// This method assumes a form or cURL will be used to send the data
+// This method assumes a form or cURL or a tool like postman will be used to send the data
 func AddNew(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("name")
 	price := r.FormValue("price")
 	time := r.FormValue("time")
 
-	if name == "" || price == "" || time == "" {
+	if name == "" {
 		w.Write([]byte("Data Provided Is Not Complete"))
 		return
 	}
 
-	// Check if pprice and time is numeric
-	err := process(&price, &time)
+	// Check if price and time are numeric
+	err := checkdata(&price, &time)
 	if err != nil {
 		log.Fatal(err)
-		w.Write([]byte("Invalid Data Supplied"))
+		w.Write([]byte(err.Error()))
 		return
 	}
 
@@ -104,13 +112,13 @@ func AddNew(w http.ResponseWriter, r *http.Request) {
 
 // Remove deletes the row with the given ID
 func Remove(w http.ResponseWriter, r *http.Request) {
-	id := mux.Vars(r)["id"]
+	id := r.FormValue("id")
 
 	// Check if id is numeric
-	_, err := strconv.Atoi(id)
+	err := checkdata(&id)
 	if err != nil {
 		log.Fatal(err)
-		w.Write([]byte("Invalid Data Supplied"))
+		w.Write([]byte(err.Error()))
 	}
 
 	_, err = db.Exec("DELETE FROM Food WHERE ID = ?", id)
@@ -152,7 +160,7 @@ func ShowAll(w http.ResponseWriter, r *http.Request) {
 // UpdateName modifies the Name field for a given ID
 func UpdateName(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	name := mux.Vars(r)["name"]
+	name := r.FormValue("name")
 
 	err := update("Name", name, id)
 	if err != nil {
@@ -166,7 +174,7 @@ func UpdateName(w http.ResponseWriter, r *http.Request) {
 // UpdatePrice modifies the Price field for a given ID
 func UpdatePrice(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	price := mux.Vars(r)["price"]
+	price := r.FormValue("price")
 
 	err := update("Price", price, id)
 	if err != nil {
@@ -180,9 +188,25 @@ func UpdatePrice(w http.ResponseWriter, r *http.Request) {
 // UpdateTime modifies the MakeTime field for a given ID
 func UpdateTime(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	time := mux.Vars(r)["time"]
+	time := r.FormValue("time")
 
 	err := update("MakeTime", time, id)
+	if err != nil {
+		log.Fatal(err)
+		http.Error(w, http.StatusText(500), 500)
+		return
+	}
+	w.Write([]byte("Data Updated Succesfully"))
+}
+
+// UpdateAll takes all data at once if user wants to modify all columns for the data
+func UpdateAll(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	price := r.FormValue("price")
+	name := r.FormValue("name")
+	time := r.FormValue("time")
+
+	_, err := db.Exec("UPDATE Food SET Name = ?,Price = ?,MakeTime =? WHERE ID = ?", name, price, time, id)
 	if err != nil {
 		log.Fatal(err)
 		http.Error(w, http.StatusText(500), 500)
