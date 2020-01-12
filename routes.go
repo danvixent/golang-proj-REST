@@ -149,6 +149,7 @@ func ShowAll(w http.ResponseWriter, r *http.Request) {
 		}
 		tmp = append(tmp, fd)
 	}
+	defer rows.Close()
 
 	json, err := json.MarshalIndent(&tmp, "", "	")
 	if err != nil {
