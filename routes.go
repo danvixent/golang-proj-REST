@@ -24,7 +24,7 @@ func init() {
 		log.Fatal(err)
 		os.Exit(3)
 	} else {
-		fmt.Println("Connected")
+		fmt.Println("Connected") // Note that this will still print even though there's no internet connection
 	}
 }
 
