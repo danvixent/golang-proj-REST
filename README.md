@@ -18,7 +18,7 @@ localhost:8080/get/{id}
 
 
 
-### TO select by name(exact match) use:
+### To select by name(exact match) use:
 
 localhost:8080/get/name/{name}
 
